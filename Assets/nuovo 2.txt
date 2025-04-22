@@ -1,0 +1,450 @@
+using UnityEngine;
+using UnityEngine.InputSystem;
+using System.IO;
+using System.Collections.Generic;
+using System.Xml;
+using System;
+using System.Linq;
+using UnityEngine.Networking;
+using UnityEngine.Android;
+using System.Diagnostics;
+using System.Threading.Tasks;
+using static System.Net.Mime.MediaTypeNames;
+using UnityEngine.Profiling;
+using System.Text.RegularExpressions;
+using System.Text;
+
+public class CardboardPanoramaConverter : MonoBehaviour
+{
+    public Renderer panoramaRenderer; // Renderer per mostrare il panorama
+    private AudioPlayer audioPlayer;
+    public bool leftEyeOnly;
+    private Texture2D currentTexture;
+
+    public void WriteTxtFileUsingAndroidAPI(string fileName, string content)
+    {
+        if (!Permission.HasUserAuthorizedPermission(Permission.ExternalStorageWrite))
+        {
+            UnityEngine.Debug.LogError("Permesso di scrittura non concesso");
+            return;
+        }
+
+        try
+        {
+            using (AndroidJavaClass environmentClass = new AndroidJavaClass("android.os.Environment"))
+            using (AndroidJavaObject externalStorageDirectory = environmentClass.CallStatic<AndroidJavaObject>("getExternalStorageDirectory"))
+            {
+                string storagePath = externalStorageDirectory.Call<string>("getAbsolutePath");
+                storagePath = Path.Combine(storagePath, "Pano"); 
+                string fullPath = Path.Combine(storagePath, fileName);
+
+                File.WriteAllText(fullPath, content);
+                UnityEngine.Debug.Log("File scritto con successo in: " + fullPath);
+            }
+        }
+        catch (Exception e)
+        {
+            UnityEngine.Debug.Log("Errore nell'API Android: " + e.Message);
+        }
+    }
+
+    public void WriteByteFileUsingAndroidAPI(string fileName, byte[] content)
+    {
+        if (!Permission.HasUserAuthorizedPermission(Permission.ExternalStorageWrite))
+        {
+            UnityEngine.Debug.LogError("Permesso di scrittura non concesso");
+            return;
+        }
+
+        try
+        {
+            using (AndroidJavaClass environmentClass = new AndroidJavaClass("android.os.Environment"))
+            using (AndroidJavaObject externalStorageDirectory = environmentClass.CallStatic<AndroidJavaObject>("getExternalStorageDirectory"))
+            {
+                string storagePath = externalStorageDirectory.Call<string>("getAbsolutePath");
+                storagePath = Path.Combine(storagePath, "Pano");
+                string fullPath = Path.Combine(storagePath, fileName);
+                File.WriteAllBytes(fullPath, content);
+                UnityEngine.Debug.Log("File scritto con successo in: " + fullPath);
+            }
+        }
+        catch (Exception e)
+        {
+            UnityEngine.Debug.Log("Errore nell'API Android: " + e.Message);
+        }
+    }
+
+    void Start()
+    {
+        // Verifica e richiedi permessi
+        if (!Permission.HasUserAuthorizedPermission(Permission.ExternalStorageRead))
+        {
+            Permission.RequestUserPermission(Permission.ExternalStorageRead);
+        }
+
+        if (!Permission.HasUserAuthorizedPermission(Permission.ExternalStorageWrite))
+        {
+            Permission.RequestUserPermission(Permission.ExternalStorageWrite);
+        }
+
+        leftEyeOnly = false;
+        audioPlayer = new AudioPlayer();
+
+        string filePath = "/storage/emulated/0/Pano/panorama.jpg"; 
+        //StartCoroutine(Extract(filePath));
+    }
+
+    System.Collections.IEnumerator Extract(string filePath) {
+        UnityEngine.Debug.Log("Avviata extract - lettura file");
+        byte[] bytes = File.ReadAllBytes(filePath);
+        UnityEngine.Debug.Log("extract - avvio parse");
+        var sections = ParseJpeg(bytes);
+        if (sections == null || sections.Count == 0)
+        {
+            UnityEngine.Debug.Log(" Nessun metadato XMP trovato.");
+            yield break;
+        }
+
+        StringBuilder fullXml = new();
+        bool visitedExtended = false;
+
+        foreach (var section in sections)
+        {
+            bool isXmp = StartsWith(section.Data, XMP_SIGNATURE);
+            bool isExt = StartsWith(section.Data, EXTENSTION_SIGNATURE);
+
+            if (isXmp)
+            {
+                string str = Encoding.UTF8.GetString(section.Data);
+                var matches = Regex.Matches(str, @"<x:xmpmeta[\s\S]*?</x:xmpmeta>");
+                foreach (Match match in matches)
+                    fullXml.Append(match.Value);
+            }
+            else if (isExt)
+            {
+                int len = EXT_PREFIX_LENGTH + (visitedExtended ? 4 : 0);
+                visitedExtended = true;
+                string ext = Encoding.UTF8.GetString(section.Data.Skip(len).ToArray());
+                fullXml.Append(ext);
+            }
+        }
+
+        string rawXml = fullXml.ToString();
+        //File.WriteAllText(Path.Combine("/storage/emulated/0/Pano/", "debug_cleaned.xml"), rawXml);
+        WriteTxtFileUsingAndroidAPI("debug_cleaned.xml", rawXml);
+
+        var xmpBlocks = Regex.Matches(rawXml, @"<x:xmpmeta[\s\S]*?</x:xmpmeta>");
+        if (xmpBlocks.Count == 0)
+        {
+            UnityEngine.Debug.Log(" Nessun blocco XMP valido trovato.");
+            yield break;
+        }
+
+        foreach (Match block in xmpBlocks)
+        {
+            try
+            {
+                string cleaned = SanitizeXml(block.Value);
+                XmlDocument doc = new XmlDocument();
+                doc.LoadXml("<xml>" + cleaned + "</xml>");
+                UnityEngine.Debug.Log("Provo img");
+                ExtractAndSaveMedia(doc, "GImage:Data", "estratto_immagine.jpg");
+                UnityEngine.Debug.Log("Fine img");
+                UnityEngine.Debug.Log("Provo audio");
+                ExtractAndSaveMedia(doc, "GAudio:Data", "estratto_audio.m4a");
+                UnityEngine.Debug.Log("Fine audio");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log(" Errore durante il parsing: " + ex.Message);
+            }
+        }
+    }
+
+    void ExtractAndSaveMedia(XmlDocument doc, string tag, string filename)
+    {
+        var nsmgr = new XmlNamespaceManager(doc.NameTable);
+        nsmgr.AddNamespace("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#");
+
+        var descriptions = doc.SelectNodes("//rdf:Description", nsmgr);
+        foreach (XmlNode node in descriptions)
+        {
+            foreach (XmlAttribute attr in node.Attributes)
+            {
+                string fullTag = attr.Prefix + ":" + attr.LocalName;
+                if (fullTag == tag)
+                {
+                    UnityEngine.Debug.Log($"Trovato {tag}");
+                    try
+                    {
+                        string base64 = attr.Value;
+                        int mod = base64.Length % 4;
+                        if (mod != 0)
+                            base64 = base64.PadRight(base64.Length + (4 - mod), '=');
+
+                        UnityEngine.Debug.Log($"Mi preparo a convertire {tag} ");
+                        byte[] data = Convert.FromBase64String(base64);
+                        string outPath = Path.Combine("/storage/emulated/0/Pano/", filename);
+                        UnityEngine.Debug.Log($"Mi preparo a salvare {tag} in {outPath}");
+                        WriteByteFileUsingAndroidAPI(filename, data);
+                        UnityEngine.Debug.Log($"Salvato {tag} in {outPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        UnityEngine.Debug.Log($"Errore salvataggio {tag}: {ex.Message}");
+                    }
+                    return;
+                }
+            }
+        }
+
+        UnityEngine.Debug.Log($" Nessun dato trovato per {tag}");
+    }
+
+    static string SanitizeXml(string input)
+    {
+        StringBuilder sanitized = new();
+        foreach (char c in input)
+        {
+            if (c == 0x9 || c == 0xA || c == 0xD || (c >= 0x20 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0xFFFD))
+                sanitized.Append(c);
+        }
+        return sanitized.ToString();
+    }
+
+    class JpegSection
+    {
+        public byte Marker;
+        public int Length;
+        public byte[] Data;
+    }
+
+    const byte M_SOI = 0xD8;
+    const byte M_APP1 = 0xE1;
+    const byte M_SOS = 0xDA;
+    const string XMP_SIGNATURE = "http://ns.adobe.com/xap/1.0/";
+    const string EXTENSTION_SIGNATURE = "http://ns.adobe.com/xmp/extension/";
+    const int EXT_PREFIX_LENGTH = 71;
+
+    static bool StartsWith(byte[] data, string signature)
+    {
+        var sigBytes = Encoding.ASCII.GetBytes(signature);
+        if (data.Length < sigBytes.Length) return false;
+        for (int i = 0; i < sigBytes.Length; i++)
+        {
+            if (data[i] != sigBytes[i]) return false;
+        }
+        return true;
+    }
+
+    static List<JpegSection> ParseJpeg(byte[] bytes)
+    {
+        List<JpegSection> sections = new();
+        int i = 0;
+
+        byte ReadByte() => i < bytes.Length ? bytes[i++] : (byte)0xFF;
+
+        if (ReadByte() != 0xFF || ReadByte() != M_SOI)
+            return null;
+
+        while (i < bytes.Length)
+        {
+            if (bytes[i++] != 0xFF)
+                return null;
+
+            while (i < bytes.Length && bytes[i] == 0xFF)
+                i++;
+
+            if (i >= bytes.Length)
+                break;
+
+            byte marker = bytes[i++];
+            if (marker == M_SOS)
+                break;
+
+            if (i + 1 >= bytes.Length)
+                return null;
+
+            int length = (bytes[i] << 8) | bytes[i + 1];
+            i += 2;
+
+            if (i + length - 2 > bytes.Length)
+                return null;
+
+            if (marker == M_APP1)
+            {
+                sections.Add(new JpegSection
+                {
+                    Marker = marker,
+                    Length = length,
+                    Data = bytes.Skip(i).Take(length - 2).ToArray()
+                });
+            }
+
+            i += length - 2;
+        }
+
+        return sections;
+    }
+    // Funzione per caricare una panoramica
+    public void LoadPanorama(string path)
+    {
+        // Step 1: Rilascia la texture corrente prima di caricarne una nuova
+        ReleaseCurrentTexture();
+
+        // Step 2: Assicurati che il renderer non punti a nulla durante il caricamento
+        panoramaRenderer.material.mainTexture = null;
+
+        // Step 3: Carica l'immagine
+        try
+        {
+            string imagePath = path + ".jpg";
+            byte[] fileData = File.ReadAllBytes(imagePath);
+            Texture2D newTexture = new Texture2D(2, 2);
+
+            if (newTexture.LoadImage(fileData))
+            {
+                // Step 4: Assegna la nuova texture
+                currentTexture = newTexture;
+                panoramaRenderer.material.mainTexture = currentTexture;
+
+                UnityEngine.Debug.Log($"Panorama caricato: {imagePath}, " +
+                    $"Dimensioni: {currentTexture.width}x{currentTexture.height}, " +
+                    $"Memoria utilizzata: {Profiler.GetTotalAllocatedMemoryLong() / (1024 * 1024)} MB");
+            }
+            else
+            {
+                UnityEngine.Debug.LogError($"Impossibile caricare l'immagine: {imagePath}");
+                Destroy(newTexture); // Distruggi la texture se il caricamento fallisce
+            }
+        }
+        catch (System.Exception e)
+        {
+            UnityEngine.Debug.LogError($"Errore nel caricamento dell'immagine: {e.Message}");
+        }
+
+        // Step 5: Gestione dell'audio
+        audioPlayer.StopAudio();
+        string audioPath = path + ".m4a";
+        if (!File.Exists(audioPath))
+        {
+            audioPath = path + ".mp4";
+        }
+
+        if (!string.IsNullOrEmpty(audioPath))
+        {
+            audioPlayer.PlayAudio(audioPath);
+        }
+
+        // Step 6: Forza la garbage collection
+        ForceGarbageCollection();
+    }
+
+    // Metodo dedicato al rilascio delle risorse della texture corrente
+    private void ReleaseCurrentTexture()
+    {
+        if (currentTexture != null)
+        {
+            UnityEngine.Debug.Log("Rilascio texture precedente...");
+
+            // Rimuovi riferimento dal renderer
+            if (panoramaRenderer.material.mainTexture == currentTexture)
+            {
+                panoramaRenderer.material.mainTexture = null;
+            }
+
+            // Destroy della texture
+            Destroy(currentTexture);
+            currentTexture = null;
+        }
+    }
+
+    // Metodo per forzare la garbage collection
+    private void ForceGarbageCollection()
+    {
+        // Forza la pulizia della memoria
+        Resources.UnloadUnusedAssets();
+        System.GC.Collect();
+        System.GC.WaitForPendingFinalizers();
+    }
+
+    // Versione asincrona per caricare il panorama (opzionale)
+    public async Task LoadPanoramaAsync(string imagePath, string audioPath)
+    {
+        // Rilascia la texture corrente
+        ReleaseCurrentTexture();
+
+        // Rimuovi la texture dal renderer mentre carichiamo la nuova
+        panoramaRenderer.material.mainTexture = null;
+
+        try
+        {
+            // Carica l'immagine in modo asincrono
+            byte[] fileData = await Task.Run(() => File.ReadAllBytes(imagePath));
+
+            // Torna al thread principale per operazioni su Unity
+            await Task.Yield();
+
+            Texture2D newTexture = new Texture2D(2, 2);
+            if (newTexture.LoadImage(fileData))
+            {
+                currentTexture = newTexture;
+                panoramaRenderer.material.mainTexture = currentTexture;
+
+                UnityEngine.Debug.Log($"Panorama caricato in modo asincrono: {imagePath}, " +
+                    $"Dimensioni: {currentTexture.width}x{currentTexture.height}, " +
+                    $"Memoria utilizzata: {Profiler.GetTotalAllocatedMemoryLong() / (1024 * 1024)} MB");
+            }
+            else
+            {
+                UnityEngine.Debug.LogError($"Impossibile caricare l'immagine: {imagePath}");
+                Destroy(newTexture);
+            }
+        }
+        catch (System.Exception e)
+        {
+            UnityEngine.Debug.LogError($"Errore nel caricamento dell'immagine: {e.Message}");
+        }
+
+        // Gestione dell'audio
+        audioPlayer.StopAudio();
+        if (!string.IsNullOrEmpty(audioPath))
+        {
+            audioPlayer.PlayAudio(audioPath);
+        }
+
+        // Forza la garbage collection
+        ForceGarbageCollection();
+    }
+
+    void OnApplicationFocus(bool hasFocus)
+    {
+        if (!hasFocus)
+        {
+            UnityEngine.Debug.Log("L'utente ha lasciato l'app: metto in pausa l'audio.");
+            audioPlayer.PauseAudio();
+        }
+        else
+        {
+            UnityEngine.Debug.Log("L'utente è tornato nell'app: riprendo l'audio.");
+            audioPlayer.ResumeAudio();
+        }
+    }
+
+    void OnDestroy()
+    {
+        // Rilascia la texture prima di distruggere l'oggetto
+        ReleaseCurrentTexture();
+
+        // Rilascia il player audio
+        if (audioPlayer != null)
+        {
+            audioPlayer.Dispose();
+            audioPlayer = null;
+        }
+
+        // Forza una pulizia finale
+        ForceGarbageCollection();
+    }
+}
+
