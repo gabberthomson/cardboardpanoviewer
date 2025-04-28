@@ -22,7 +22,6 @@ The app automatically creates the following folder on the device's external stor
 /storage/emulated/0/Pano/
 
 Place your `.jpg` panoramic images in this folder.  
-If audio is included, make sure the `.m4a` file has the same name as the image (for example: `photo.jpg` and `photo.m4a`).
 
 ---
 
