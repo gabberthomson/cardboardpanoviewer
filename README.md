@@ -2,7 +2,7 @@
 
 A simple 3D panorama viewer for Meta Quest, created by a beginner in programming with the help of artificial intelligence.
 
-The goal is to display panoramic images taken with Google Cardboard Camera (or similar apps) in a stereoscopic and immersive way using VR.
+The goal is to display panoramic images taken with Google Cardboard Camera or Google Camera in Panorama Mode in a stereoscopic and immersive way using VR.
 
 ---
 
