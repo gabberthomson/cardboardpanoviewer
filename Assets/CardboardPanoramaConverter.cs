@@ -24,23 +24,19 @@ public class CardboardPanoramaConverter : MonoBehaviour
     private Texture2D currentTexture;
     public Transform sphereTransform; // La sfera con la texture panoramica
     public Transform cameraRig;       // XR Origin o la camera principale
-    public string BasePanoPath;
     public string ConvertedPanoPath;
     private Texture defaultTexture;
     public TextMeshProUGUI menuText;
     public Canvas helpCanvas;
 
-    void setBanoPaths()
+
+    void setPanoPaths()
     {
         try
         {
             using (AndroidJavaClass environmentClass = new AndroidJavaClass("android.os.Environment"))
             using (AndroidJavaObject externalStorageDirectory = environmentClass.CallStatic<AndroidJavaObject>("getExternalStorageDirectory"))
             {
-                BasePanoPath = externalStorageDirectory.Call<string>("getAbsolutePath");
-                BasePanoPath = Path.Combine(BasePanoPath, "Pano");
-                if (!Directory.Exists(BasePanoPath))
-                    Directory.CreateDirectory(BasePanoPath);
                 ConvertedPanoPath = Path.Combine(Application.persistentDataPath, "Converted");
                 if (!Directory.Exists(ConvertedPanoPath))
                     Directory.CreateDirectory(ConvertedPanoPath);
@@ -64,22 +60,13 @@ public class CardboardPanoramaConverter : MonoBehaviour
             menuText.transform.position = cameraTransform.position + cameraTransform.forward * 4f; // 2 metri davanti all'utente
             menuText.transform.rotation = Quaternion.LookRotation(cameraTransform.forward); // Ruota il menu per guardare l'utente
         }
+
     }
 
 
-        void Start()
+    void Start()
     {
-        // Verifica e richiedi permessi
-        if (!Permission.HasUserAuthorizedPermission(Permission.ExternalStorageRead))
-        {
-            Permission.RequestUserPermission(Permission.ExternalStorageRead);
-        }
-
-        if (!Permission.HasUserAuthorizedPermission(Permission.ExternalStorageWrite))
-        {
-            Permission.RequestUserPermission(Permission.ExternalStorageWrite);
-        }
-        setBanoPaths();
+        setPanoPaths();
         defaultTexture = panoramaRenderer.material.mainTexture;
         leftEyeOnly = false;
         audioPlayer = new AudioPlayer();
@@ -236,8 +223,8 @@ public class CardboardPanoramaConverter : MonoBehaviour
     public (Texture2D, string) ConvertCardboardJpg(string item)
     {
         string fileName = item + ".jpg";
-        string path = Path.Combine(BasePanoPath, fileName);
-        byte[] bytes = File.ReadAllBytes(path);
+        //string path = Path.Combine(BasePanoPath, fileName);
+        byte[] bytes = FolderPickerReceiver.Instance.ReadFileAsBytes(fileName);
         List<JpegSection> sections = ParseJpeg(bytes);
         StringBuilder xml = new StringBuilder();
         bool visitedExtended = false;
@@ -327,11 +314,13 @@ public class CardboardPanoramaConverter : MonoBehaviour
             }
 
             byte[] rightImageBytes = Convert.FromBase64String(PadBase64(gImageBase64));
-            Texture2D rightTex = new Texture2D(2, 2);
-            rightTex.LoadImage(rightImageBytes);
+            var rightTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            rightTex.LoadImage(rightImageBytes, markNonReadable: false);
+            rightImageBytes = null; // libera subito
 
-            Texture2D leftTex = new Texture2D(2, 2);
-            leftTex.LoadImage(bytes);
+            var leftTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            leftTex.LoadImage(bytes, markNonReadable: false);
+            bytes = null; // libera subito
 
             Texture2D final = BuildEquirectTexture(leftTex, rightTex, gPano);
 
@@ -339,12 +328,50 @@ public class CardboardPanoramaConverter : MonoBehaviour
             byte[] output = final.EncodeToJPG();
             UnityEngine.Debug.Log($"imagepath: {Path.Combine(ConvertedPanoPath, fileName)}");
             File.WriteAllBytes(Path.Combine(ConvertedPanoPath, fileName), output);
+            // ... dopo File.WriteAllBytes(...)
+            if (leftTex != null) { Destroy(leftTex); leftTex = null; }
+            if (rightTex != null) { Destroy(rightTex); rightTex = null; }
+            final.Apply(false, true);
             return (final, audioFileName);
 
         }
         else
             return (null, "");
     }
+
+    Color ComputeAverageColor(Texture2D left)
+    {
+        Color acc = Color.black;
+        int count = 0;
+
+        void Sample(Texture2D t)
+        {
+            if (t == null) return;
+            int stepX = Mathf.Max(1, t.width / 16);
+            int stepY = Mathf.Max(1, t.height / 16);
+            for (int y = 0; y < t.height; y += stepY)
+                for (int x = 0; x < t.width; x += stepX)
+                {
+                    acc += t.GetPixel(x, y);
+                    count++;
+                }
+        }
+
+        Sample(left);
+        return (count > 0) ? acc / count : Color.black;
+    }
+
+    void FillWhole(Texture2D tex, Color c)
+    {
+        int w = tex.width, h = tex.height;
+        // usa Color32 e una sola riga riutilizzata (O(w) memoria)
+        var row = new Color32[w];
+        for (int i = 0; i < w; i++) row[i] = c;
+        for (int yy = 0; yy < h; yy++)
+            tex.SetPixels32(0, yy, w, 1, row);
+        // NON chiamare Apply qui: fallo una sola volta alla fine del build
+    }
+
 
     public Texture2D BuildEquirectTexture(Texture2D left, Texture2D right, Dictionary<string, int> pano)
     {
@@ -358,74 +385,68 @@ public class CardboardPanoramaConverter : MonoBehaviour
         UnityEngine.Debug.Log($"cropWidth: {cropWidth}");
 
         int targetSize = fullWidth;
-        float ratio = targetSize / (float)fullWidth;
         float scaleWidth = (cropWidth != fullWidth) ? cropWidth / (float)fullWidth : 1f;
         float imageWidth = targetSize * scaleWidth;
-        float imageHeight = left.height * ratio;
+        float imageHeight = left.height;
         float offsetX = (targetSize - imageWidth) / 2f;
-        float x = cropLeft * ratio + offsetX;
+        // float x = cropLeft + offsetX;
+        float x = cropLeft;
         // float y = cropTop * ratio;
 
-        float y = targetSize - imageHeight - cropTop * ratio;
-        float y2 = targetSize / 2 - imageHeight - cropTop * ratio;
+        float y = targetSize - imageHeight - cropTop;
+        float y2 = targetSize / 2 - imageHeight - cropTop;
 
         UnityEngine.Debug.Log($"x: {x}");
         UnityEngine.Debug.Log($"y: {y}");
         UnityEngine.Debug.Log($"y: {y2}");
         Texture2D canvas = new Texture2D(targetSize, targetSize, TextureFormat.RGBA32, false);
-        Color avg = GetAverageColor(left);
-        Color[] fill = new Color[targetSize * targetSize];
-        for (int i = 0; i < fill.Length; i++) fill[i] = avg;
-        canvas.SetPixels(fill);
+        Color avg = ComputeAverageColor(left);
+        FillWhole(canvas, avg);
 
-        CopyTextureRegion(left, canvas, x, y, imageWidth, imageHeight, 0);
+        CopyTextureRegion(left, canvas, x, y);
         if (right != null)
-            CopyTextureRegion(right, canvas, x, y2, imageWidth, imageHeight, 0);
+            CopyTextureRegion(right, canvas, x, y2);
 
         canvas.Apply();
         return canvas;
     }
 
-    void CopyTextureRegion(Texture2D src, Texture2D dst, float dx, float dy, float dw, float dh, int mip)
+    void CopyTextureRegion(Texture2D src, Texture2D dst, float dx, float dy)
     {
-        Color[] srcPixels = src.GetPixels();
-        int srcW = src.width;
-        int srcH = src.height;
+        //Color[] srcPixels = src.GetPixels();
         int x0 = Mathf.RoundToInt(dx);
         int y0 = Mathf.RoundToInt(dy);
-        int w = Mathf.RoundToInt(dw);
-        int h = Mathf.RoundToInt(dh);
-
-        for (int y = 0; y < h; y++)
+        var row = new Color32[src.width];
+        for (int y = 0; y < src.height; y++)
         {
-            int sy = y * srcH / h;
-            for (int x = 0; x < w; x++)
+            for (int x = 0; x < src.width; x++)
             {
-                int sx = x * srcW / w;
-                Color c = srcPixels[sy * srcW + sx];
-                dst.SetPixel(x0 + x, y0 + y, c);
+                Color32 c = src.GetPixel(x, y);
+                row[x] = c;
+                //dst.SetPixel(x0 + x, y0 + y, c);
             }
+            dst.SetPixels32(x0, y0 + y, src.width, 1, row);
         }
     }
 
-    Color GetAverageColor(Texture2D tex)
-    {
-        Color[] pixels = tex.GetPixels();
-        long r = 0, g = 0, b = 0;
-        int count = 0;
-        for (int y = 0; y < tex.height; y++)
-        {
-            for (int x = 0; x < tex.width; x++)
-            {
-                Color c = pixels[y * tex.width + x];
-                r += (int)(c.r * 255);
-                g += (int)(c.g * 255);
-                b += (int)(c.b * 255);
-                count++;
-            }
-        }
-        return new Color(r / 255f / count, g / 255f / count, b / 255f / count);
-    }
+    //Color GetAverageColor(Texture2D tex)
+    //{
+    //    Color[] pixels = tex.GetPixels();
+    //    long r = 0, g = 0, b = 0;
+    //    int count = 0;
+    //    for (int y = 0; y < tex.height; y++)
+    //    {
+    //        for (int x = 0; x < tex.width; x++)
+    //        {
+    //            Color c = pixels[y * tex.width + x];
+    //            r += (int)(c.r * 255);
+    //            g += (int)(c.g * 255);
+    //            b += (int)(c.b * 255);
+    //            count++;
+    //        }
+    //    }
+    //    return new Color(r / 255f / count, g / 255f / count, b / 255f / count);
+    //}
 
     string PadBase64(string base64)
     {

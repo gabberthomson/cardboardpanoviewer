@@ -4275,7 +4275,6 @@ MonoBehaviour:
   leftEyeOnly: 0
   sphereTransform: {fileID: 893665783}
   cameraRig: {fileID: 344702793}
-  BasePanoPath: 
   ConvertedPanoPath: 
   menuText: {fileID: 1581242828}
   helpCanvas: {fileID: 1917302223}
@@ -7750,6 +7749,8 @@ MonoBehaviour:
   buttonPrefab: {fileID: 7755092940235913321, guid: 9287f48732195a5449c070a3340dee5a, type: 3}
   panoramaConverter: {fileID: 728217011}
   menuPanel: {fileID: 413628764}
+  helpCanvas: {fileID: 1917302223}
+  menuText: {fileID: 1581242828}
   raycaster: {fileID: 0}
   rayRenderer: {fileID: 0}
   rayMaxLength: 10
@@ -8856,20 +8857,11 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Cardboard Panorama Viewer
-
-
-    You have to sideload your stereoscopic
-    files in the directory named Pano (at the root level of your external memory).
-
-    By
-    pressing the menu button you can then select the file (it''s pretty slow the
-    first time, be patient).
-
-    By pressing button A you deselect/select the 3d
-    viewer mode.
-
-'
+  m_text: "Cardboard Panorama Viewer - Tutorial\r\n\r\nPress the Menu button to open
+    the file list on your Meta Quest. On first launch after installation, you\u2019ll
+    be prompted to choose a folder for your stereoscopic files; then sideload your
+    Cardboard Camera panoramas into the chosen directory.\r\nPress A to toggle 3D
+    Viewer mode on or off."
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -11115,6 +11107,50 @@ Transform:
   - {fileID: 192180452}
   m_Father: {fileID: 514093724}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1964602097
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1964602099}
+  - component: {fileID: 1964602098}
+  m_Layer: 0
+  m_Name: FolderPickerReceiver
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1964602098
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1964602097}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e0231f8f29a209f4caa1eca607a0c803, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!4 &1964602099
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1964602097}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1979747941
 GameObject:
   m_ObjectHideFlags: 0
@@ -12129,3 +12165,4 @@ SceneRoots:
   - {fileID: 1417805578}
   - {fileID: 563267438}
   - {fileID: 1917302224}
+  - {fileID: 1964602099}

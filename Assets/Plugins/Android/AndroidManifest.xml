@@ -1,11 +1,22 @@
 ﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools" android:installLocation="auto">
-	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-	<uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
-	<application android:requestLegacyExternalStorage="true" />
-	<application android:label="@string/app_name" android:icon="@mipmap/app_icon" android:allowBackup="false">
-    <activity android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" android:configChanges="locale|fontScale|keyboard|keyboardHidden|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode" android:launchMode="singleTask" android:name="com.unity3d.player.UnityPlayerGameActivity" android:excludeFromRecents="true" android:exported="true">
+  <application android:label="@string/app_name" android:icon="@mipmap/app_icon" android:allowBackup="false">
+	  <!-- forza la rimozione di permessi MR/Scene/Anchors arrivati da librerie -->
+	  <uses-permission android:name="com.oculus.permission.USE_SCENE" tools:node="remove"/>
+	  <uses-permission android:name="com.oculus.permission.USE_ANCHOR_API" tools:node="remove"/>
+	  <uses-permission android:name="com.oculus.permission.HAND_TRACKING" tools:node="remove"/>
+
+	  <uses-permission android:name="horizonos.permission.USE_SCENE" tools:node="remove"/>
+	  <uses-permission android:name="horizonos.permission.USE_ANCHOR_API" tools:node="remove"/>
+	  <uses-permission android:name="horizonos.permission.HAND_TRACKING" tools:node="remove"/>
+
+	  <!-- se non usi passthrough, rimuovi anche CAMERA (alcuni pacchetti la inseriscono) -->
+	  <uses-permission android:name="android.permission.CAMERA" tools:node="remove"/>
+
+	  <!-- opzionale: rimuovi anche la feature handtracking se compare -->
+	  <uses-feature android:name="oculus.software.handtracking" tools:node="remove"/>
+
+	  <activity android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" android:configChanges="locale|fontScale|keyboard|keyboardHidden|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode" android:launchMode="singleTask" android:name="com.unity3d.player.UnityPlayerGameActivity" android:excludeFromRecents="true" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
@@ -16,8 +27,9 @@
     <meta-data android:name="unityplayer.SkipPermissionsDialog" android:value="false" />
     <meta-data android:name="com.samsung.android.vr.application.mode" android:value="vr_only" />
     <meta-data android:name="com.oculus.ossplash.background" android:value="black" />
-    <meta-data android:name="com.oculus.telemetry.project_guid" android:value="0dbdab12-cfb3-46ff-baeb-7c4c7298f319" />
-    <meta-data android:name="com.oculus.supportedDevices" android:value="quest|quest2|questpro|quest3|quest3s" />
+    <meta-data android:name="com.oculus.telemetry.project_guid" android:value="285ce2a2-689e-4b27-b877-015c09033ad1" />
+    <meta-data android:name="com.oculus.supportedDevices" android:value="quest2|questpro|quest3|quest3s" tools:replace="android:value" />
   </application>
   <uses-feature android:name="android.hardware.vr.headtracking" android:version="1" android:required="true" />
+
 </manifest>

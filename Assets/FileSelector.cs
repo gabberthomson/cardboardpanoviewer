@@ -1,11 +1,16 @@
 using UnityEngine;
 using System.IO;
+using System.Collections;
 using System.Collections.Generic;
 using TMPro;
 using System.Diagnostics;
 using SimpleFileBrowser;
 using Meta.XR;
 using System.Collections.Specialized;
+using System;
+using System.Linq;
+using System.Text.RegularExpressions;
+
 
 // Corretto per i componenti OVR
 
@@ -15,6 +20,8 @@ public class FileSelector : MonoBehaviour
     public GameObject buttonPrefab; // Prefab del testo 3D per i file
     public CardboardPanoramaConverter panoramaConverter; // Riferimento allo script per caricare il file
     public GameObject menuPanel; // Il pannello del menu (per nasconderlo e mostrarlo)
+    public Canvas helpCanvas; // Canvas con sfondo nero e testo guida
+    public TextMeshProUGUI menuText;
 
     // Componenti per il raggio di selezione
     public OVRRaycaster raycaster;
@@ -22,13 +29,15 @@ public class FileSelector : MonoBehaviour
     public float rayMaxLength = 10f;
     public Color rayColor = Color.blue;
     private GameObject _lastHoveredObject = null;
+    private bool menuBuilding;
+    private bool menuReady;
 
 
     private List<string> fileList = new List<string>();
     private Transform rayOrigin;
 
     private int currentPage = 0;
-    private int filesPerPage = 7;
+    private int filesPerPage = 6;
     private int totalPages = 0;
 
     void Start()
@@ -41,64 +50,19 @@ public class FileSelector : MonoBehaviour
         UnityEngine.Debug.Log("FileSelector initialized");
     }
 
-    //Not used
-    public void ShowFileBrowser()
-    {
-        if (FindObjectOfType<FileBrowser>() == null)
-        {
-            UnityEngine.Debug.LogError("ERRORE: Nessun FileBrowser trovato nella scena! Assicurati di aver creato il GameObject.");
-            return;
-        }
-
-        if (panoramaConverter == null)
-        {
-            UnityEngine.Debug.LogError("ERRORE: panoramaConverter non è stato assegnato in FileSelector!");
-            return;
-        }
-
-        if (FileBrowser.CheckPermission() != FileBrowser.Permission.Granted)
-
-        {
-            FileBrowser.RequestPermission(); // Richiede il permesso per accedere ai file
-        }
-
-
-
-        // Abilita la UI del file browser
-        FileBrowser.SetFilters(true, new FileBrowser.Filter("Images", ".jpg"));
-        FileBrowser.SetDefaultFilter(".jpg");
-        UnityEngine.Debug.Log("Menu avvio");
-        // Mostra il file browser
-        string initialPath = "/storage/emulated/0/Pano/";
-        FileBrowser.ShowLoadDialog((paths) =>
-        {
-            if (paths.Length > 0)
-            {
-                string selectedFile = paths[0]; // Prende il primo file selezionato
-                string selectedAudio = selectedFile.Replace(".jpg", ".m4a"); // Cerca il file audio con lo stesso nome
-
-                UnityEngine.Debug.Log("File selezionato: " + selectedFile);
-                selectedFile = Path.GetFileNameWithoutExtension(selectedFile);
-                panoramaConverter.LoadPanorama(selectedFile); // Carica il panorama e l'audio
-            }
-        },
-        () => { UnityEngine.Debug.Log("File selection cancelled"); },  // Annullato
-        FileBrowser.PickMode.Files, false, initialPath, null, "Select a file", "Load");
-    }
-
 
     void InitializeRayInteraction()
     {
         // Configura il punto di origine del raggio (solitamente il controller)
-        GameObject rightHandAnchor = GameObject.Find("RightHandAnchor");
-        if (rightHandAnchor != null)
+        var rig = FindObjectOfType<OVRCameraRig>();
+        if (rig != null)
         {
-            rayOrigin = rightHandAnchor.transform;
-            UnityEngine.Debug.Log("Ray origin set to RightHandAnchor");
+            rayOrigin = rig.rightControllerAnchor;
+            UnityEngine.Debug.Log("Ray origin set from OVRCameraRig.rightControllerAnchor");
         }
         else
         {
-            UnityEngine.Debug.LogError("RightHandAnchor not found!");
+            UnityEngine.Debug.LogError("OVRCameraRig not found!");
         }
 
         // Configura il LineRenderer per visualizzare il raggio
@@ -202,7 +166,7 @@ public class FileSelector : MonoBehaviour
                 _lastHoveredObject = hitObject;
 
                 // Debug per verificare che il raycast funzioni
-                UnityEngine.Debug.Log("Hovering over: " + hitObject.name);
+                // UnityEngine.Debug.Log("Hovering over: " + hitObject.name);
             }
         }
         // Se non colpiamo nulla ma avevamo un oggetto precedente
@@ -217,9 +181,6 @@ public class FileSelector : MonoBehaviour
         }
     }
 
-
-
-
     void PositionMenuInFrontOfUser()
     {
         Transform cameraTransform = Camera.main != null ? Camera.main.transform : GameObject.Find("CenterEyeAnchor").transform;
@@ -227,39 +188,66 @@ public class FileSelector : MonoBehaviour
         {
             menuPanel.transform.position = cameraTransform.position + cameraTransform.forward * 1.5f + Vector3.up * 0.5f;
             menuPanel.transform.rotation = Quaternion.LookRotation(cameraTransform.forward); // Ruota il menu per guardare l'utente
+            menuText.transform.position = cameraTransform.position + cameraTransform.forward * 4f + Vector3.down * 0.5f; // 2 metri davanti all'utente
+            menuText.transform.rotation = Quaternion.LookRotation(cameraTransform.forward); // Ruota il menu per guardare l'utente
         }
     }
 
-    public void ShowMenu()
+    private IEnumerator BuildMenuRoutine()
     {
+        menuBuilding = true;
+        LockInteraction(true);        // spegne tutti i collider del menu
+        yield return null;            // lascia finire il frame attuale
+
+        // Pulisci vecchia pagina in un frame “vuoto”
+        foreach (Transform child in menuContainer)
+            Destroy(child.gameObject);
+        yield return null;            // dai tempo al main/render thread
+
+        // Ricrea i pulsanti/paginazione
+        GenerateMenu();               // la tua funzione esistente
+
+        yield return new WaitForEndOfFrame();
+        LockInteraction(false);       // riaccendi collider
+        menuReady = true;
+        menuBuilding = false;
+    }
+
+    private void LockInteraction(bool locked)
+    {
+        foreach (var c in menuContainer.GetComponentsInChildren<Collider>(true))
+            c.enabled = !locked;
+
+        //foreach (var b in menuContainer.GetComponentsInChildren<ButtonTrigger>(true))
+        //    b.SetInteractable(!locked);    // vedi patch al ButtonTrigger qui sotto
+    }
+
+    public bool ShowMenu()
+    {
+        UnityEngine.Debug.Log("Show menu");
+        // Prova a caricare o apri il picker
+        if (!FolderPickerReceiver.Instance.LoadOrRequestUri())
+        {
+            UnityEngine.Debug.Log("LoadOrRequestUri ancora nn c'è il file");
+            return false; // Picker aperto: aspetti il prossimo giro
+        }
+        UnityEngine.Debug.Log("Si va avanti nel menu");
+
+        if (menuBuilding) return false;
+
         PositionMenuInFrontOfUser();
-        menuPanel.SetActive(true); // Attiva il menu
-        LoadFiles(); // Carica i file quando il menu è visibile
+
+        // Elenco sincrono dei file
+        fileList = FolderPickerReceiver.Instance.ListFilesSync();
+        // dopo aver popolato la lista
+        fileList.Sort(StringComparer.CurrentCultureIgnoreCase);
+
+        // ... carica la lista file QUI (una sola volta) ...
+        StartCoroutine(BuildMenuRoutine());
+
+        return true;
     }
 
-    public void LoadFiles()
-    {
-        string directoryPath;
-        using (AndroidJavaClass environmentClass = new AndroidJavaClass("android.os.Environment"))
-        using (AndroidJavaObject externalStorageDir = environmentClass.CallStatic<AndroidJavaObject>("getExternalStorageDirectory"))
-        {
-            string storagePath = externalStorageDir.Call<string>("getAbsolutePath");
-            directoryPath = Path.Combine(storagePath, "Pano");
-        }
-        if (!Directory.Exists(directoryPath))
-        {
-            UnityEngine.Debug.LogError("Cartella non trovata: " + directoryPath);
-            return;
-        }
-
-        fileList.Clear();
-        foreach (string file in Directory.GetFiles(directoryPath, "*.jpg"))
-        {
-            fileList.Add(Path.GetFileNameWithoutExtension(file));
-        }
-
-        GenerateMenu();
-    }
 
     void GenerateMenu()
     {
@@ -280,111 +268,189 @@ public class FileSelector : MonoBehaviour
         int endIndex = Mathf.Min(startIndex + filesPerPage, fileList.Count);
 
         float verticalSpacing = 6f;
-
-        // Genera i pulsanti per i file della pagina corrente
-        for (int i = startIndex; i < endIndex; i++)
+        int displayIndex = 0;
+        // Write sometething if empty dir
+        if (fileList.Count == 0)
         {
-            int displayIndex = i - startIndex; // Indice relativo alla pagina corrente
-
+            displayIndex++;
             GameObject button = Instantiate(buttonPrefab, menuContainer);
-            button.transform.localPosition = new Vector3(0, -(displayIndex + 1) * verticalSpacing, 0);
-            button.name = "FileButton_" + fileList[i];
+            button.transform.localPosition = new Vector3(0, -displayIndex * verticalSpacing, 0);
+            button.name = "NoFile";
 
             TMP_Text buttonText = button.GetComponent<TMP_Text>();
             if (buttonText != null)
             {
-                buttonText.text = fileList[i];
+                buttonText.text = "Empty Diretory";
                 buttonText.color = Color.white;
             }
-
-            int index = i;
-
-            // Crea un GameObject figlio per il collider
-            GameObject colliderObject = new GameObject("ButtonCollider");
-            colliderObject.transform.SetParent(button.transform);
-            colliderObject.transform.localPosition = Vector3.zero;
-
-            // Aggiungi un collider molto più grande
-            BoxCollider collider = colliderObject.AddComponent<BoxCollider>();
-            collider.size = new Vector3(0.5f, 0.1f, 0.01f);  // Più largo e alto
-            collider.center = Vector3.zero;
-
-            // Trasferisci il ButtonTrigger sul GameObject del collider
-            ButtonTrigger trigger = colliderObject.AddComponent<ButtonTrigger>();
-            trigger.Setup(() => SelectFile(fileList[index]));
-
-            // Collega il trigger al testo per il cambio colore
-            trigger.SetTextComponent(buttonText);
-
-            UnityEngine.Debug.Log("Created button: " + fileList[index] + " with large collider");
         }
-
-        // Crea i pulsanti di navigazione solo se ci sono più pagine
-        if (totalPages > 1)
+        else
         {
-            // Crea il pulsante "Indietro" a fondo pagina
-            GameObject prevButton = Instantiate(buttonPrefab, menuContainer);
-            prevButton.transform.localPosition = new Vector3(-6f, -(filesPerPage + 1) * verticalSpacing, 0);
-            prevButton.name = "PrevPageButton";
-
-            TMP_Text prevButtonText = prevButton.GetComponent<TMP_Text>();
-            if (prevButtonText != null)
+            // Genera i pulsanti per i file della pagina corrente
+            for (int i = startIndex; i < endIndex; i++)
             {
-                prevButtonText.text = "Prev";
-                prevButtonText.color = currentPage > 0 ? Color.white : new Color(0.5f, 0.5f, 0.5f, 0.5f); // Grigio se inattivo
+                displayIndex++; // Indice relativo alla pagina corrente
+
+                GameObject button = Instantiate(buttonPrefab, menuContainer);
+                button.transform.localPosition = new Vector3(0, -displayIndex * verticalSpacing, 0);
+                button.name = "FileButton_" + fileList[i];
+
+                TMP_Text buttonText = button.GetComponent<TMP_Text>();
+                if (buttonText != null)
+                {
+                    buttonText.text = fileList[i];
+                    buttonText.color = Color.white;
+                }
+
+                int index = i;
+
+                // Crea un GameObject figlio per il collider
+                GameObject colliderObject = new GameObject("ButtonCollider");
+                colliderObject.transform.SetParent(button.transform);
+                colliderObject.transform.localPosition = Vector3.zero;
+
+                // Aggiungi un collider molto più grande
+                BoxCollider collider = colliderObject.AddComponent<BoxCollider>();
+                collider.size = new Vector3(0.5f, 0.1f, 0.01f);  // Più largo e alto
+                collider.center = Vector3.zero;
+
+                // Trasferisci il ButtonTrigger sul GameObject del collider
+                ButtonTrigger trigger = colliderObject.AddComponent<ButtonTrigger>();
+                trigger.Setup(() => SelectFile(fileList[index]));
+
+                // Collega il trigger al testo per il cambio colore
+                trigger.SetTextComponent(buttonText);
+
+                UnityEngine.Debug.Log("Created button: " + fileList[index] + " with large collider");
             }
 
-            // Aggiungi collider e trigger al pulsante precedente
-            GameObject prevColliderObj = new GameObject("PrevButtonCollider");
-            prevColliderObj.transform.SetParent(prevButton.transform);
-            prevColliderObj.transform.localPosition = Vector3.zero;
-
-            BoxCollider prevCollider = prevColliderObj.AddComponent<BoxCollider>();
-            prevCollider.size = new Vector3(0.5f, 0.1f, 0.01f);
-            prevCollider.center = Vector3.zero;
-
-            ButtonTrigger prevTrigger = prevColliderObj.AddComponent<ButtonTrigger>();
-            prevTrigger.Setup(() => NavigateToPreviousPage());
-            prevTrigger.SetTextComponent(prevButtonText);
-
-            // Crea il pulsante "Avanti" a fondo pagina
-            GameObject nextButton = Instantiate(buttonPrefab, menuContainer);
-            nextButton.transform.localPosition = new Vector3(6f, -(filesPerPage + 1) * verticalSpacing, 0);
-            nextButton.name = "NextPageButton";
-
-            TMP_Text nextButtonText = nextButton.GetComponent<TMP_Text>();
-            if (nextButtonText != null)
+            // Crea i pulsanti di navigazione solo se ci sono più pagine
+            if (totalPages > 1)
             {
-                nextButtonText.text = "Next";
-                nextButtonText.color = currentPage < totalPages - 1 ? Color.white : new Color(0.5f, 0.5f, 0.5f, 0.5f); // Grigio se inattivo
-            }
+                displayIndex++;
+                // Crea il pulsante "Indietro" a fondo pagina
+                GameObject prevButton = Instantiate(buttonPrefab, menuContainer);
+                prevButton.transform.localPosition = new Vector3(-6f, -displayIndex * verticalSpacing, 0);
+                prevButton.name = "PrevPageButton";
 
-            // Aggiungi collider e trigger al pulsante successivo
-            GameObject nextColliderObj = new GameObject("NextButtonCollider");
-            nextColliderObj.transform.SetParent(nextButton.transform);
-            nextColliderObj.transform.localPosition = Vector3.zero;
+                TMP_Text prevButtonText = prevButton.GetComponent<TMP_Text>();
+                if (prevButtonText != null)
+                {
+                    prevButtonText.text = "Prev";
+                    prevButtonText.color = currentPage > 0 ? Color.white : new Color(0.5f, 0.5f, 0.5f, 0.5f); // Grigio se inattivo
+                }
 
-            BoxCollider nextCollider = nextColliderObj.AddComponent<BoxCollider>();
-            nextCollider.size = new Vector3(0.5f, 0.1f, 0.01f);
-            nextCollider.center = Vector3.zero;
+                // Aggiungi collider e trigger al pulsante precedente
+                GameObject prevColliderObj = new GameObject("PrevButtonCollider");
+                prevColliderObj.transform.SetParent(prevButton.transform);
+                prevColliderObj.transform.localPosition = Vector3.zero;
 
-            ButtonTrigger nextTrigger = nextColliderObj.AddComponent<ButtonTrigger>();
-            nextTrigger.Setup(() => NavigateToNextPage());
-            nextTrigger.SetTextComponent(nextButtonText);
+                BoxCollider prevCollider = prevColliderObj.AddComponent<BoxCollider>();
+                prevCollider.size = new Vector3(0.5f, 0.1f, 0.01f);
+                prevCollider.center = Vector3.zero;
 
-            // Aggiungi un indicatore della pagina attuale tra i pulsanti
-            GameObject pageIndicator = Instantiate(buttonPrefab, menuContainer);
-            pageIndicator.transform.localPosition = new Vector3(0f, -(filesPerPage + 1) * verticalSpacing, 0);
-            pageIndicator.name = "PageIndicator";
+                ButtonTrigger prevTrigger = prevColliderObj.AddComponent<ButtonTrigger>();
+                prevTrigger.Setup(() => NavigateToPreviousPage());
+                prevTrigger.SetTextComponent(prevButtonText);
 
-            TMP_Text pageIndicatorText = pageIndicator.GetComponent<TMP_Text>();
-            if (pageIndicatorText != null)
-            {
-                pageIndicatorText.text = $"{currentPage + 1}/{totalPages}";
-                pageIndicatorText.fontSize *= 0.8f; // Riduce leggermente la dimensione del testo
-                pageIndicatorText.color = Color.white;
+                // Crea il pulsante "Avanti" a fondo pagina
+                GameObject nextButton = Instantiate(buttonPrefab, menuContainer);
+                nextButton.transform.localPosition = new Vector3(6f, -displayIndex * verticalSpacing, 0);
+                nextButton.name = "NextPageButton";
+
+                TMP_Text nextButtonText = nextButton.GetComponent<TMP_Text>();
+                if (nextButtonText != null)
+                {
+                    nextButtonText.text = "Next";
+                    nextButtonText.color = currentPage < totalPages - 1 ? Color.white : new Color(0.5f, 0.5f, 0.5f, 0.5f); // Grigio se inattivo
+                }
+
+                // Aggiungi collider e trigger al pulsante successivo
+                GameObject nextColliderObj = new GameObject("NextButtonCollider");
+                nextColliderObj.transform.SetParent(nextButton.transform);
+                nextColliderObj.transform.localPosition = Vector3.zero;
+
+                BoxCollider nextCollider = nextColliderObj.AddComponent<BoxCollider>();
+                nextCollider.size = new Vector3(0.5f, 0.1f, 0.01f);
+                nextCollider.center = Vector3.zero;
+
+                ButtonTrigger nextTrigger = nextColliderObj.AddComponent<ButtonTrigger>();
+                nextTrigger.Setup(() => NavigateToNextPage());
+                nextTrigger.SetTextComponent(nextButtonText);
+
+                // Aggiungi un indicatore della pagina attuale tra i pulsanti
+                GameObject pageIndicator = Instantiate(buttonPrefab, menuContainer);
+                pageIndicator.transform.localPosition = new Vector3(0f, -displayIndex * verticalSpacing, 0);
+                pageIndicator.name = "PageIndicator";
+
+                TMP_Text pageIndicatorText = pageIndicator.GetComponent<TMP_Text>();
+                if (pageIndicatorText != null)
+                {
+                    pageIndicatorText.text = $"{currentPage + 1}/{totalPages}";
+                    pageIndicatorText.fontSize *= 0.8f; // Riduce leggermente la dimensione del testo
+                    pageIndicatorText.color = Color.white;
+                }
             }
         }
+
+        // Insert the Tutorial Button
+        displayIndex++;
+        GameObject tutorialButton = Instantiate(buttonPrefab, menuContainer);
+        tutorialButton.transform.localPosition = new Vector3(-0f, -displayIndex * verticalSpacing, 0);
+        tutorialButton.name = "TutorialButton";
+
+        TMP_Text tutorialButtonText = tutorialButton.GetComponent<TMP_Text>();
+        tutorialButtonText.text = "Tutorial";
+        tutorialButtonText.color = Color.white;
+
+        // Aggiungi collider e trigger al pulsante precedente
+        GameObject tutorialColliderObj = new GameObject("tutorialButtonCollider");
+        tutorialColliderObj.transform.SetParent(tutorialButton.transform);
+        tutorialColliderObj.transform.localPosition = Vector3.zero;
+
+        BoxCollider tutorialCollider = tutorialColliderObj.AddComponent<BoxCollider>();
+        tutorialCollider.size = new Vector3(0.5f, 0.1f, 0.01f);
+        tutorialCollider.center = Vector3.zero;
+
+        ButtonTrigger tutorialTrigger = tutorialColliderObj.AddComponent<ButtonTrigger>();
+        tutorialTrigger.Setup(() => Tutorial());
+        tutorialTrigger.SetTextComponent(tutorialButtonText);
+
+        // Insert the Exit Button
+        displayIndex++;
+        GameObject exitButton = Instantiate(buttonPrefab, menuContainer);
+        exitButton.transform.localPosition = new Vector3(-0f, -displayIndex * verticalSpacing, 0);
+        exitButton.name = "ExitButton";
+
+        TMP_Text exitButtonText = exitButton.GetComponent<TMP_Text>();
+        exitButtonText.text = "Exit App";
+        exitButtonText.color = Color.white;
+
+        // Aggiungi collider e trigger al pulsante precedente
+        GameObject exitColliderObj = new GameObject("ExitButtonCollider");
+        exitColliderObj.transform.SetParent(exitButton.transform);
+        exitColliderObj.transform.localPosition = Vector3.zero;
+
+        BoxCollider exitCollider = exitColliderObj.AddComponent<BoxCollider>();
+        exitCollider.size = new Vector3(0.5f, 0.1f, 0.01f);
+        exitCollider.center = Vector3.zero;
+
+        ButtonTrigger exitTrigger = exitColliderObj.AddComponent<ButtonTrigger>();
+        exitTrigger.Setup(() => ExitApp());
+        exitTrigger.SetTextComponent(exitButtonText);
+
+    }
+
+
+    public void ExitApp()
+    {
+        Application.Quit();
+    }
+
+    public void Tutorial()
+    {
+        menuPanel.SetActive(false); // Chiudi il menu dopo la selezione
+        helpCanvas.enabled = true;
     }
 
     // Metodi per gestire la navigazione tra le pagine

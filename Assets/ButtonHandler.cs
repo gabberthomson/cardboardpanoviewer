@@ -24,29 +24,34 @@ public class ButtonHandler : MonoBehaviour
 
     void Update()
     {
-        // Premendo "Menu", il menu si apre/chiude
-        if (buttonMenu.action.WasPressedThisFrame())
-        {
-            helpCanvas.enabled = false;
+        bool menuPressed =
+            (buttonMenu.action.WasPressedThisFrame());
+
+        if (menuPressed)
             ToggleMenu();
 
-        }
+        bool aPressed =
+            (buttonA.action.WasPressedThisFrame());   // A (destra)
 
-        // Se il menu è chiuso, il pulsante A cambia la modalità occhio sinistro
-        if (!menuPanel.activeSelf && buttonA.action.WasPressedThisFrame())
-        {
+        if (!menuPanel.activeSelf && aPressed)
             ToggleLeftEyeMode();
-        }
     }
-
     void ToggleMenu()
     {
+        UnityEngine.Debug.Log("Toggle Menu");
         //fileSelector.ShowFileBrowser();
-        if(!menuPanel.activeSelf)
+        if (!menuPanel.activeSelf)
         {
-            fileSelector.ShowMenu();
+            bool activeSelf = fileSelector.ShowMenu();
+            UnityEngine.Debug.Log("active self: " + activeSelf);
+            if (activeSelf)
+            {
+                helpCanvas.enabled = false;
+                menuPanel.SetActive(!menuPanel.activeSelf);
+            }
         }
-        else { 
+        else {
+            UnityEngine.Debug.Log("Destroy");
             menuPanel.SetActive(!menuPanel.activeSelf); // Alterna visibilità del menu
             foreach (Transform child in fileSelector.menuContainer) // Cancella i pulsanti
             {

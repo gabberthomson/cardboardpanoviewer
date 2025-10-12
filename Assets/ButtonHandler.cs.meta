@@ -1,2 +1,17 @@
 fileFormatVersion: 2
 guid: e32363cf80b0a66439efd252bcda2385
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - buttonMenu: {fileID: -8249756982305423540, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  - buttonA: {fileID: 9028959436121989358, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  - menuPanel: {instanceID: 0}
+  - panoramaRenderer: {instanceID: 0}
+  - fileSelector: {instanceID: 0}
+  - helpCanvas: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

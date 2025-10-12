@@ -33,7 +33,7 @@ public class ButtonTrigger : MonoBehaviour
         if (textComponent != null)
         {
             textComponent.color = hoverColor;
-            UnityEngine.Debug.Log("Hover entered: " + gameObject.name);
+            // UnityEngine.Debug.Log("Hover entered: " + gameObject.name);
         }
     }
 
@@ -43,7 +43,7 @@ public class ButtonTrigger : MonoBehaviour
         if (textComponent != null)
         {
             textComponent.color = normalColor;
-            UnityEngine.Debug.Log("Hover exited: " + gameObject.name);
+            // UnityEngine.Debug.Log("Hover exited: " + gameObject.name);
         }
     }
 
