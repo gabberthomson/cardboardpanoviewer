@@ -29,12 +29,11 @@ public class FileSelector : MonoBehaviour
     public float rayMaxLength = 10f;
     public Color rayColor = Color.blue;
     private GameObject _lastHoveredObject = null;
-    private bool menuBuilding;
-    private bool menuReady;
+    private bool firstTime = true;
 
 
     private List<string> fileList = new List<string>();
-    private Transform rayOrigin;
+    public Transform rayOrigin;
 
     private int currentPage = 0;
     private int filesPerPage = 6;
@@ -43,27 +42,6 @@ public class FileSelector : MonoBehaviour
     void Start()
     {
         PositionMenuInFrontOfUser();
-        //ShowFileBrowser(); // Mostra il menu all'avvio
-        InitializeRayInteraction();
-
-        // Debug per verificare l'inizializzazione
-        UnityEngine.Debug.Log("FileSelector initialized");
-    }
-
-
-    void InitializeRayInteraction()
-    {
-        // Configura il punto di origine del raggio (solitamente il controller)
-        var rig = FindObjectOfType<OVRCameraRig>();
-        if (rig != null)
-        {
-            rayOrigin = rig.rightControllerAnchor;
-            UnityEngine.Debug.Log("Ray origin set from OVRCameraRig.rightControllerAnchor");
-        }
-        else
-        {
-            UnityEngine.Debug.LogError("OVRCameraRig not found!");
-        }
 
         // Configura il LineRenderer per visualizzare il raggio
         if (rayRenderer == null)
@@ -76,18 +54,14 @@ public class FileSelector : MonoBehaviour
             rayRenderer.endColor = new Color(rayColor.r, rayColor.g, rayColor.b, 0.5f);
             rayRenderer.positionCount = 2;
         }
+
+        // Debug per verificare l'inizializzazione
+        UnityEngine.Debug.Log("FileSelector initialized");
     }
+
 
     void Update()
     {
-        // Assicurati che il rayOrigin sia valido
-        if (rayOrigin == null)
-        {
-            UnityEngine.Debug.LogError("rayOrigin is null! Reinitializing ray interaction...");
-            InitializeRayInteraction();
-            return;
-        }
-
         // Aggiorna la posizione del raggio
         UpdateRayVisualization();
 
@@ -111,6 +85,11 @@ public class FileSelector : MonoBehaviour
         {
             rayRenderer.SetPosition(0, rayOrigin.position);
             rayRenderer.SetPosition(1, rayOrigin.position + rayOrigin.forward * rayMaxLength);
+        }
+        else
+        {
+            if (rayRenderer == null) UnityEngine.Debug.Log("rayRenderer = null");
+            if (rayOrigin == null) UnityEngine.Debug.Log("rayOrigin = null");
         }
     }
 
@@ -193,59 +172,49 @@ public class FileSelector : MonoBehaviour
         }
     }
 
-    private IEnumerator BuildMenuRoutine()
+    private void BuildMenuRoutine()
     {
-        menuBuilding = true;
-        LockInteraction(true);        // spegne tutti i collider del menu
-        yield return null;            // lascia finire il frame attuale
-
         // Pulisci vecchia pagina in un frame “vuoto”
         foreach (Transform child in menuContainer)
             Destroy(child.gameObject);
-        yield return null;            // dai tempo al main/render thread
 
         // Ricrea i pulsanti/paginazione
         GenerateMenu();               // la tua funzione esistente
 
-        yield return new WaitForEndOfFrame();
-        LockInteraction(false);       // riaccendi collider
-        menuReady = true;
-        menuBuilding = false;
-    }
-
-    private void LockInteraction(bool locked)
-    {
-        foreach (var c in menuContainer.GetComponentsInChildren<Collider>(true))
-            c.enabled = !locked;
-
-        //foreach (var b in menuContainer.GetComponentsInChildren<ButtonTrigger>(true))
-        //    b.SetInteractable(!locked);    // vedi patch al ButtonTrigger qui sotto
     }
 
     public bool ShowMenu()
     {
-        UnityEngine.Debug.Log("Show menu");
-        // Prova a caricare o apri il picker
-        if (!FolderPickerReceiver.Instance.LoadOrRequestUri())
+        bool status = false;
+        try
         {
-            UnityEngine.Debug.Log("LoadOrRequestUri ancora nn c'è il file");
-            return false; // Picker aperto: aspetti il prossimo giro
+            UnityEngine.Debug.Log("Show menu");
+            if (firstTime)
+            {
+                // Prova a caricare o apri il picker
+                if (!FolderPickerReceiver.Instance.LoadOrRequestUri())
+                {
+                    UnityEngine.Debug.Log("LoadOrRequestUri ancora nn c'è il file");
+                    return false; // Picker aperto: aspetti il prossimo giro
+                }
+                firstTime = false;
+                // Elenco sincrono dei file
+                fileList = FolderPickerReceiver.Instance.ListFilesSync();
+                // dopo aver popolato la lista
+                fileList.Sort(StringComparer.CurrentCultureIgnoreCase);
+
+                UnityEngine.Debug.Log("Si va avanti nel menu");
+            }
+
+            PositionMenuInFrontOfUser();
+            BuildMenuRoutine();
+            status = true;
         }
-        UnityEngine.Debug.Log("Si va avanti nel menu");
-
-        if (menuBuilding) return false;
-
-        PositionMenuInFrontOfUser();
-
-        // Elenco sincrono dei file
-        fileList = FolderPickerReceiver.Instance.ListFilesSync();
-        // dopo aver popolato la lista
-        fileList.Sort(StringComparer.CurrentCultureIgnoreCase);
-
-        // ... carica la lista file QUI (una sola volta) ...
-        StartCoroutine(BuildMenuRoutine());
-
-        return true;
+        catch (Exception ex)
+        {
+            status = false;
+        }
+        return status;
     }
 
 

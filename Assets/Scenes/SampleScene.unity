@@ -7755,6 +7755,7 @@ MonoBehaviour:
   rayRenderer: {fileID: 0}
   rayMaxLength: 10
   rayColor: {r: 0, g: 0, b: 1, a: 1}
+  rayOrigin: {fileID: 2053161474}
 --- !u!114 &1417805580
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7773,6 +7774,12 @@ MonoBehaviour:
   panoramaRenderer: {fileID: 893665781}
   fileSelector: {fileID: 1417805579}
   helpCanvas: {fileID: 1917302223}
+  centerEyeCamera: {fileID: 1906827073}
+  zoom: 1
+  zoomMin: 1
+  zoomMax: 8
+  zoomSpeed: 20
+  zoomSmooth: 0.08
 --- !u!1 &1429031851
 GameObject:
   m_ObjectHideFlags: 0
@@ -8861,7 +8868,7 @@ MonoBehaviour:
     the file list on your Meta Quest. On first launch after installation, you\u2019ll
     be prompted to choose a folder for your stereoscopic files; then sideload your
     Cardboard Camera panoramas into the chosen directory.\r\nPress A to toggle 3D
-    Viewer mode on or off."
+    Viewer mode on or off.\nUse the lever of yor right controlloer to zoom in."
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

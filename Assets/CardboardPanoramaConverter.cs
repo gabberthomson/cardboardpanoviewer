@@ -73,6 +73,24 @@ public class CardboardPanoramaConverter : MonoBehaviour
         StartCoroutine(WaitUntilCameraReady());
     }
 
+    static void FixHorizontalSeam(Texture2D tex)
+    {
+        int w = tex.width, h = tex.height;
+        // Se la texture è non readable, esci
+        try { tex.GetPixel(0, 0); } catch { return; }
+
+        // Copia dai vicini: evita di usare proprio i bordi (0 e w-1)
+        for (int y = 0; y < h; y++)
+        {
+            var leftNeighbor = tex.GetPixel(1, y);   // seconda colonna
+            var rightNeighbor = tex.GetPixel(w - 2, y);   // penultima colonna
+            tex.SetPixel(0, y, rightNeighbor);      // bordo sinistro = penultima
+            tex.SetPixel(w - 1, y, leftNeighbor);       // bordo destro  = seconda
+        }
+        tex.Apply(false, false);
+    }
+
+
     // Funzione per caricare una panoramica
     public void LoadPanorama(string item)
     {
@@ -82,7 +100,6 @@ public class CardboardPanoramaConverter : MonoBehaviour
 
         // Step 2: Assicurati che il renderer non punti a nulla durante il caricamento
         panoramaRenderer.material.mainTexture = null;
-        bool meta = true;
         string audioPath = "";
         // Step 3: Carica l'immagine
         try
@@ -94,9 +111,15 @@ public class CardboardPanoramaConverter : MonoBehaviour
             // First we check if it's already converted
             if (File.Exists(Path.Combine(ConvertedPanoPath, imageName))) {
                 byte[] fileData = File.ReadAllBytes(Path.Combine(ConvertedPanoPath, imageName));
-                meta = false;
-                newTexture = new Texture2D(2, 2);
-                newTexture.LoadImage(fileData);
+                // NIENTE mipmaps qui:
+                newTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                newTexture.LoadImage(fileData, markNonReadable: false);
+
+                // Wrap e filtro coerenti
+                newTexture.wrapMode = TextureWrapMode.Repeat;
+                newTexture.filterMode = FilterMode.Bilinear;   // (Trilinear ha senso solo con mipmaps)
+                newTexture.anisoLevel = 1;
+
                 string audioName = Path.ChangeExtension(imageName, ".tmp");
                 if (File.Exists(Path.Combine(ConvertedPanoPath, audioName)))
                     audioPath = Path.Combine(ConvertedPanoPath, audioName);
@@ -323,6 +346,7 @@ public class CardboardPanoramaConverter : MonoBehaviour
             bytes = null; // libera subito
 
             Texture2D final = BuildEquirectTexture(leftTex, rightTex, gPano);
+            FixHorizontalSeam(final);
 
             // UnityEngine.Debug.Log("Equirect image created: EquirectOutput.jpg");
             byte[] output = final.EncodeToJPG();
