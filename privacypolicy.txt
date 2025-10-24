@@ -1,0 +1,42 @@
+Privacy Policy
+
+Effective Date: 24/10/2025
+
+This Privacy Policy describes how the application Cardboard Panorama Viewer (“the App”, “we”, “our”, or “us”) handles information.
+
+1. Information Collection
+
+The App does not collect, store, or transmit any personal data from users.
+No personal information, identifiers, analytics data, or device information are gathered or shared with third parties.
+
+2. Local Processing
+
+All image and audio processing takes place entirely on your device.
+The App only saves temporary files in its private storage area, which are not accessible to other applications and are automatically deleted when you uninstall the App.
+
+3. Internet and Network Access
+
+The App does not use the Internet, cloud services, or any external servers.
+All functions are performed offline.
+
+4. Third-Party Services
+
+The App does not use any third-party SDKs, analytics, or advertising services.
+
+5. Children’s Privacy
+
+The App is suitable for general audiences and does not collect any data from anyone, including children under 13.
+
+6. Security
+
+Because no personal data is transmitted or stored externally, the App does not expose any security risk to your information.
+
+7. Changes to This Policy
+
+If this Privacy Policy changes in the future (for example, if new features require network access), we will update this page and the effective date accordingly.
+
+8. Contact
+
+If you have any questions about this Privacy Policy, please contact:
+Tommaso Gabbriellini
+Email: gabbriellini@gmail.com
